@@ -1,0 +1,119 @@
+from collections import OrderedDict, defaultdict
+
+class CacheLevel:
+    def _init_(self, size, eviction_policy):
+        # Initialize a cache level with a given size and eviction policy (either LRU or LFU)
+        self.size = size
+        self.eviction_policy = eviction_policy
+        # Using OrderedDict to maintain the order of insertion/access for LRU eviction
+        self.cache = OrderedDict()
+        # Dictionary to track the frequency of accesses for LFU eviction policy
+        self.access_data = defaultdict(int)
+        
+    def get(self, key):
+        # Assumption: If the key exists in this cache level, return its value
+        if key in self.cache:
+            if self.eviction_policy == 'LRU':
+                # In LRU policy, move the accessed key to the end to mark it as recently used
+                self.cache.move_to_end(key)
+            elif self.eviction_policy == 'LFU':
+                # In LFU policy, increment the access frequency for the key
+                self.access_data[key] += 1
+            return self.cache[key]
+        return None  # Assumption: Return None if the key is not found in this level
+    
+    def put(self, key, value):
+        # Assumption: If key already exists, just update the value and manage eviction policy accordingly
+        if key in self.cache:
+            self.cache[key] = value
+            if self.eviction_policy == 'LRU':
+                # For LRU, refresh the position by moving it to the end
+                self.cache.move_to_end(key)
+            elif self.eviction_policy == 'LFU':
+                # For LFU, increment the frequency count
+                self.access_data[key] += 1
+        else:
+            # If the cache is full, apply eviction based on the specified policy
+            if len(self.cache) >= self.size:
+                self.evict()  # Evict an entry before adding a new one
+            self.cache[key] = value  # Insert the new key-value pair
+            if self.eviction_policy == 'LFU':
+                # Initialize access frequency to 1 for LFU when inserting a new key
+                self.access_data[key] = 1
+    
+    def evict(self):
+        # Eviction logic based on the eviction policy (LRU or LFU)
+        if self.eviction_policy == 'LRU':
+            # Evict the least recently used item, which is the first item in the OrderedDict
+            self.cache.popitem(last=False)
+        elif self.eviction_policy == 'LFU':
+            # Evict the least frequently used item by finding the key with the smallest frequency
+            least_frequent_key = min(self.access_data, key=self.access_data.get)
+            del self.cache[least_frequent_key]
+            del self.access_data[least_frequent_key]
+
+class MultilevelCacheSystem:
+    def _init_(self):
+        # Initialize a list to hold multiple cache levels (L1, L2, ...)
+        self.levels = []
+    
+    def addCacheLevel(self, size, eviction_policy):
+        # Assumption: Adds a new cache level with a specified size and eviction policy (LRU/LFU)
+        new_cache_level = CacheLevel(size, eviction_policy)
+        self.levels.append(new_cache_level)
+    
+    def get(self, key):
+        # Iterate over cache levels starting from L1 down to Ln to search for the key
+        for i, cache_level in enumerate(self.levels):
+            value = cache_level.get(key)
+            if value is not None:
+                # If the key is found, promote the data to higher-priority levels (closer to L1)
+                for j in range(i, 0, -1):
+                    self.levels[j-1].put(key, value)
+                return value  # Return the value once it's promoted to the top levels
+        return None  # Assumption: Return None if the key is not found in any level (cache miss)
+    
+    def put(self, key, value):
+        # Assumption: Always insert data into the L1 cache (the highest priority level)
+        if self.levels:
+            self.levels[0].put(key, value)
+    
+    def removeCacheLevel(self, level):
+        # Assumption: Removes a cache level by its index if it exists within the range of levels
+        if 0 <= level < len(self.levels):
+            self.levels.pop(level)
+    
+    def displayCache(self):
+        # Assumption: Prints the current state of each cache level, showing keys and values
+        for i, cache_level in enumerate(self.levels):
+            print(f"L{i+1} Cache: {list(cache_level.cache.items())}")
+
+# Example usage:
+cache_system = MultilevelCacheSystem()
+
+# Add L1 cache with size 3 and LRU policy
+cache_system.addCacheLevel(3, 'LRU')
+
+# Add L2 cache with size 2 and LFU policy
+cache_system.addCacheLevel(2, 'LFU')
+
+# Insert key-value pairs into the cache
+cache_system.put("A", "1")
+cache_system.put("B", "2")
+cache_system.put("C", "3")
+
+# Retrieve the value of key "A" from cache
+cache_system.get("A")  # Returns "1" and promotes "A" to L1
+
+# Insert key "D", which will cause eviction in L1 (based on LRU policy)
+cache_system.put("D", "4")
+
+# Retrieve the value of key "C", promotes from L2 to L1
+cache_system.get("C")
+
+# Display the current cache state
+cache_system.displayCache()
+
+# Expected Output:
+# L1 Cache: [('A', '1'), ('D', '4'), ('C', '3')]
+# L2 Cache: [('B', '2')]
